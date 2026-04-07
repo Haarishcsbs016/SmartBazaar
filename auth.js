@@ -1,71 +1,40 @@
-import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
-import { authAPI } from './apiService';
+import jwt from "jsonwebtoken";
 
-export const useAuthStore = create(
-  persist(
-    (set) => ({
-      currentUser: null,
-      token: null,
-      loadingAuth: false,
-      authChecked: false,
-      login: async (email, password) => {
-        set({ loadingAuth: true });
-        try {
-          const response = await authAPI.login({ email: email.trim().toLowerCase(), password });
-          set({
-            currentUser: response.user,
-            token: response.token,
-            loadingAuth: false,
-            authChecked: true,
-          });
-          return response.user;
-        } catch (error) {
-          set({ loadingAuth: false });
-          throw error;
-        }
-      },
-      signup: async (name, email, password) => {
-        set({ loadingAuth: true });
-        try {
-          const response = await authAPI.register({
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            password,
-          });
+export const protect = (req, res, next) => {
+  let token;
 
-          set({
-            currentUser: response.user,
-            token: response.token,
-            loadingAuth: false,
-            authChecked: true,
-          });
+  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
 
-          return response.user;
-        } catch (error) {
-          set({ loadingAuth: false });
-          throw error;
-        }
-      },
-      restoreSession: async () => {
-        const token = useAuthStore.getState().token;
-        if (!token) {
-          set({ authChecked: true });
-          return;
-        }
+  // Check if token exists
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: "Not authorized to access this route",
+    });
+  }
 
-        try {
-          const response = await authAPI.me(token);
-          set({ currentUser: response.data, authChecked: true });
-        } catch {
-          set({ currentUser: null, token: null, authChecked: true });
-        }
-      },
-      logout: () => set({ currentUser: null, token: null, authChecked: true }),
-    }),
-    {
-      name: 'market-sphere-auth',
-      storage: createJSONStorage(() => localStorage),
-    }
-  )
-);
+  try {
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.userId = decoded.id;
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Not authorized to access this route",
+    });
+  }
+};
+
+export const admin = (req, res, next) => {
+  if (req.user && req.user.role === "admin") {
+    next();
+  } else {
+    return res.status(403).json({
+      success: false,
+      message: "Not authorized as admin",
+    });
+  }
+};
